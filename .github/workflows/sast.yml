@@ -24,12 +24,53 @@ jobs:
         run: |
           pip install bandit
 
-      - name: Run bandit
+      - name: Run bandit (JSON report)
         run: |
           bandit -r . -f json -o bandit-report.json || true
 
-      - name: Upload bandit report
+      - name: Convert Bandit JSON to CSV
+        run: |
+          python - << 'EOF'
+          import json
+          import csv
+
+          with open("bandit-report.json", "r") as f:
+            data = json.load(f)
+
+          results = data.get("results", [])
+
+          # Настраиваем нужные поля
+          fieldnames = [
+              "filename",
+              "line_number",
+              "issue_severity",
+              "issue_confidence",
+              "issue_text",
+              "test_id",
+              "test_name",
+              "more_info"
+          ]
+
+          with open("bandit-report.csv", "w", newline="", encoding="utf-8") as csvfile:
+              writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+              writer.writeheader()
+              for r in results:
+                  writer.writerow({
+                      "filename": r.get("filename"),
+                      "line_number": r.get("line_number"),
+                      "issue_severity": r.get("issue_severity"),
+                      "issue_confidence": r.get("issue_confidence"),
+                      "issue_text": r.get("issue_text"),
+                      "test_id": r.get("test_id"),
+                      "test_name": r.get("test_name"),
+                      "more_info": r.get("more_info"),
+                  })
+          EOF
+
+      - name: Upload bandit reports
         uses: actions/upload-artifact@v4
         with:
           name: bandit-report
-          path: bandit-report.json
+          path: |
+            bandit-report.json
+            bandit-report.csv
