@@ -45,7 +45,8 @@ jobs:
           docker run --rm \
             --network host \
             -v "$(pwd)/zap-reports:/zap/wrk" \
-            owasp/zap2docker-stable zap-baseline.py \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
               -t "$TARGET_URL" \
               -r zap-report.html \
               -w zap-warnings.md \
@@ -54,12 +55,6 @@ jobs:
 
           echo "Contents of zap-reports after ZAP run:"
           ls -la zap-reports || true
-
-      - name: Show ZAP container logs (if any)
-        if: always()
-        run: |
-          # На всякий случай покажем все контейнеры и их логи
-          docker ps -a || true
 
       - name: Convert ZAP JSON to CSV
         run: |
