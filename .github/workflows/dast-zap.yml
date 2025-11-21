@@ -16,24 +16,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Docker уже есть в ubuntu-latest, ставим только docker compose plugin
-      - name: Install docker compose plugin
+      # Проверяем, что docker и docker compose доступны
+      - name: Check Docker and Compose
         run: |
-          sudo apt-get update
-          sudo apt-get install -y docker-compose-plugin
+          docker --version
           docker compose version
 
       # Поднимаем DefectDojo из стандартного docker-compose.yml
       - name: Start DefectDojo stack
         run: |
-          # По умолчанию nginx порт 8080 хоста:
           docker compose up -d
           echo "Waiting for DefectDojo to start..."
-          # Ждём, пока всё поднимется
+          # даём время на инициализацию БД и сервисов
           sleep 120
           docker compose ps
 
-      # Запускаем ZAP Baseline Scan
+      # Запускаем ZAP Baseline Scan против nginx на 8080
       - name: Run ZAP Baseline Scan
         run: |
           mkdir -p zap-reports
@@ -51,7 +49,7 @@ jobs:
               -J zap-report.json \
               -x zap-report.xml || true
 
-      # Конвертация JSON-отчёта ZAP в CSV (для открытия в Excel)
+      # Конвертация JSON-отчёта ZAP в CSV (для Excel)
       - name: Convert ZAP JSON to CSV
         run: |
           python - << 'EOF'
@@ -66,7 +64,6 @@ jobs:
 
           data = json.load(report_path.open(encoding="utf-8"))
 
-          # Типичная структура ZAP JSON: { "site": [ { "alerts": [ ... ] } ] }
           sites = data.get("site") or []
           if not sites:
               print("No 'site' entries in ZAP JSON, skipping.")
