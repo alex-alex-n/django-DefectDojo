@@ -28,7 +28,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile.django   # <-- ВАЖНО: путь к Dockerfile
+          file: docker/Dockerfile.django-debian   # <-- ВАЖНО: путь к Dockerfile
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/defectdojo-django:latest
 
@@ -36,6 +36,6 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile.nginx
+          file: docker/Dockerfile.nginx-alpine
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/defectdojo-nginx:latest
