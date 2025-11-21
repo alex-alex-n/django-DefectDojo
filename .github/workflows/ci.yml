@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_DB: defectdojo
+          POSTGRES_USER: defectdojo
+          POSTGRES_PASSWORD: defectdojo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U defectdojo"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt || true
+
+      - name: Run unit tests
+        env:
+          DD_DATABASE_URL: postgres://defectdojo:defectdojo@localhost:5432/defectdojo
+        run: |
+          python manage.py test
