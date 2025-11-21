@@ -16,27 +16,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Проверяем, что docker и docker compose доступны
       - name: Check Docker and Compose
         run: |
           docker --version
           docker compose version
 
-      # Поднимаем DefectDojo из стандартного docker-compose.yml
       - name: Start DefectDojo stack
         run: |
           docker compose up -d
           echo "Waiting for DefectDojo to start..."
-          # даём время на инициализацию БД и сервисов
-          sleep 120
+          sleep 150
           docker compose ps
 
-      # Запускаем ZAP Baseline Scan против nginx на 8080
+      - name: Show DefectDojo logs (short)
+        run: |
+          docker compose logs --tail=50
+
       - name: Run ZAP Baseline Scan
         run: |
+          set -x
           mkdir -p zap-reports
-          TARGET_URL="http://localhost:8080"
+          ls -la
+          ls -la zap-reports || true
 
+          TARGET_URL="http://localhost:8080"
           echo "Scanning $TARGET_URL with OWASP ZAP Baseline Scan..."
 
           docker run --rm \
@@ -49,9 +52,19 @@ jobs:
               -J zap-report.json \
               -x zap-report.xml || true
 
-      # Конвертация JSON-отчёта ZAP в CSV (для Excel)
+          echo "Contents of zap-reports after ZAP run:"
+          ls -la zap-reports || true
+
+      - name: Show ZAP container logs (if any)
+        if: always()
+        run: |
+          # На всякий случай покажем все контейнеры и их логи
+          docker ps -a || true
+
       - name: Convert ZAP JSON to CSV
         run: |
+          ls -la zap-reports || true
+
           python - << 'EOF'
           import json
           import csv
@@ -59,7 +72,7 @@ jobs:
 
           report_path = Path("zap-reports/zap-report.json")
           if not report_path.exists():
-              print("ZAP JSON report not found, skipping CSV conversion.")
+              print("ZAP JSON report not found at", report_path)
               raise SystemExit(0)
 
           data = json.load(report_path.open(encoding="utf-8"))
@@ -113,7 +126,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: zap-dast-reports
-          path: zap-reports/*
+          path: zap-reports
 
       - name: Stop DefectDojo stack
         if: always()
