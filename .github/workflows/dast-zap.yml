@@ -1,0 +1,124 @@
+name: DAST ZAP
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  workflow_dispatch:
+
+jobs:
+  dast-zap:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Docker уже есть в ubuntu-latest, ставим только docker compose plugin
+      - name: Install docker compose plugin
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker-compose-plugin
+          docker compose version
+
+      # Поднимаем DefectDojo из стандартного docker-compose.yml
+      - name: Start DefectDojo stack
+        run: |
+          # По умолчанию nginx порт 8080 хоста:
+          docker compose up -d
+          echo "Waiting for DefectDojo to start..."
+          # Ждём, пока всё поднимется
+          sleep 120
+          docker compose ps
+
+      # Запускаем ZAP Baseline Scan
+      - name: Run ZAP Baseline Scan
+        run: |
+          mkdir -p zap-reports
+          TARGET_URL="http://localhost:8080"
+
+          echo "Scanning $TARGET_URL with OWASP ZAP Baseline Scan..."
+
+          docker run --rm \
+            --network host \
+            -v "$(pwd)/zap-reports:/zap/wrk" \
+            owasp/zap2docker-stable zap-baseline.py \
+              -t "$TARGET_URL" \
+              -r zap-report.html \
+              -w zap-warnings.md \
+              -J zap-report.json \
+              -x zap-report.xml || true
+
+      # Конвертация JSON-отчёта ZAP в CSV (для открытия в Excel)
+      - name: Convert ZAP JSON to CSV
+        run: |
+          python - << 'EOF'
+          import json
+          import csv
+          from pathlib import Path
+
+          report_path = Path("zap-reports/zap-report.json")
+          if not report_path.exists():
+              print("ZAP JSON report not found, skipping CSV conversion.")
+              raise SystemExit(0)
+
+          data = json.load(report_path.open(encoding="utf-8"))
+
+          # Типичная структура ZAP JSON: { "site": [ { "alerts": [ ... ] } ] }
+          sites = data.get("site") or []
+          if not sites:
+              print("No 'site' entries in ZAP JSON, skipping.")
+              raise SystemExit(0)
+
+          alerts = sites[0].get("alerts") or []
+
+          fieldnames = [
+              "alert",
+              "risk",
+              "confidence",
+              "url",
+              "param",
+              "attack",
+              "evidence",
+              "cweid",
+              "wascid",
+              "description",
+              "solution",
+              "reference",
+          ]
+
+          csv_path = Path("zap-reports/zap-report.csv")
+          with csv_path.open("w", newline="", encoding="utf-8") as csvfile:
+              writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+              writer.writeheader()
+              for a in alerts:
+                  instances = a.get("instances") or []
+                  first_inst = instances[0] if instances else {}
+                  writer.writerow({
+                      "alert": a.get("alert"),
+                      "risk": a.get("risk"),
+                      "confidence": a.get("confidence"),
+                      "url": first_inst.get("uri"),
+                      "param": a.get("param"),
+                      "attack": a.get("attack"),
+                      "evidence": a.get("evidence"),
+                      "cweid": a.get("cweid"),
+                      "wascid": a.get("wascid"),
+                      "description": a.get("description"),
+                      "solution": a.get("solution"),
+                      "reference": a.get("reference"),
+                  })
+          EOF
+
+      - name: Upload ZAP DAST reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-dast-reports
+          path: zap-reports/*
+
+      - name: Stop DefectDojo stack
+        if: always()
+        run: |
+          docker compose down
