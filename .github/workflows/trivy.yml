@@ -1,0 +1,159 @@
+name: Image and FS Scan
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  workflow_dispatch:
+
+jobs:
+  trivy-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Trivy FS scan (JSON)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'fs'
+          ignore-unfixed: true
+          format: 'json'
+          output: 'trivy-fs-report.json'
+          severity: 'HIGH,CRITICAL'
+
+      - name: Convert Trivy FS JSON to CSV
+        run: |
+          python - << 'EOF'
+          import json
+          import csv
+          from pathlib import Path
+
+          report_path = Path("trivy-fs-report.json")
+          if not report_path.exists():
+            print("Trivy FS JSON report not found at", report_path)
+            raise SystemExit(0)
+
+          data = json.load(report_path.open(encoding="utf-8"))
+
+          # Trivy JSON: { "Results": [ { "Target": "...", "Vulnerabilities": [ ... ] }, ... ] }
+          results = data.get("Results") or []
+
+          fieldnames = [
+              "target",
+              "vulnerability_id",
+              "pkg_name",
+              "installed_version",
+              "fixed_version",
+              "severity",
+              "title",
+              "description",
+              "references",
+          ]
+
+          csv_path = Path("trivy-fs-report.csv")
+          with csv_path.open("w", newline="", encoding="utf-8") as csvfile:
+              writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+              writer.writeheader()
+
+              for res in results:
+                  target = res.get("Target")
+                  vulns = res.get("Vulnerabilities") or []
+                  for v in vulns:
+                      writer.writerow({
+                          "target": target,
+                          "vulnerability_id": v.get("VulnerabilityID"),
+                          "pkg_name": v.get("PkgName"),
+                          "installed_version": v.get("InstalledVersion"),
+                          "fixed_version": v.get("FixedVersion"),
+                          "severity": v.get("Severity"),
+                          "title": v.get("Title"),
+                          "description": v.get("Description"),
+                          "references": " ".join(v.get("References") or []),
+                      })
+          EOF
+
+      - name: Upload Trivy FS reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-fs-report
+          path: |
+            trivy-fs-report.json
+            trivy-fs-report.csv
+
+  trivy-image:
+    runs-on: ubuntu-latest
+    needs: trivy-scan
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t defectdojo-test:latest .
+
+      - name: Run Trivy image scan (JSON)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: 'defectdojo-test:latest'
+          format: 'json'
+          output: 'trivy-image-report.json'
+          severity: 'HIGH,CRITICAL'
+
+      - name: Convert Trivy image JSON to CSV
+        run: |
+          python - << 'EOF'
+          import json
+          import csv
+          from pathlib import Path
+
+          report_path = Path("trivy-image-report.json")
+          if not report_path.exists():
+            print("Trivy image JSON report not found at", report_path)
+            raise SystemExit(0)
+
+          data = json.load(report_path.open(encoding="utf-8"))
+          results = data.get("Results") or []
+
+          fieldnames = [
+              "target",
+              "vulnerability_id",
+              "pkg_name",
+              "installed_version",
+              "fixed_version",
+              "severity",
+              "title",
+              "description",
+              "references",
+          ]
+
+          csv_path = Path("trivy-image-report.csv")
+          with csv_path.open("w", newline="", encoding="utf-8") as csvfile:
+              writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+              writer.writeheader()
+
+              for res in results:
+                  target = res.get("Target")
+                  vulns = res.get("Vulnerabilities") or []
+                  for v in vulns:
+                      writer.writerow({
+                          "target": target,
+                          "vulnerability_id": v.get("VulnerabilityID"),
+                          "pkg_name": v.get("PkgName"),
+                          "installed_version": v.get("InstalledVersion"),
+                          "fixed_version": v.get("FixedVersion"),
+                          "severity": v.get("Severity"),
+                          "title": v.get("Title"),
+                          "description": v.get("Description"),
+                          "references": " ".join(v.get("References") or []),
+                      })
+          EOF
+
+      - name: Upload Trivy image reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-report
+          path: |
+            trivy-image-report.json
+            trivy-image-report.csv
