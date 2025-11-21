@@ -32,10 +32,13 @@ jobs:
         run: |
           docker compose logs --tail=50
 
-      - name: Run ZAP Baseline Scan
+            - name: Run ZAP Baseline Scan
         run: |
           set -x
           mkdir -p zap-reports
+          # даём полные права, чтобы пользователь внутри контейнера мог писать
+          chmod 777 zap-reports
+
           ls -la
           ls -la zap-reports || true
 
